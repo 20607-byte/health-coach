@@ -126,38 +126,39 @@ st.title("🩺 AI 생애주기 맞춤 헬스케어 코치")
 st.markdown("국민건강검진 학습 모델(`health_coach_model.pkcls`)을 기반으로 **비만·혈압 관리 필요 확률**을 실시간으로 분석합니다.")
 st.divider()
 
+# 원본 도메인에서 실제 카테고리 목록 자동 추출
+orig_domain = getattr(model, "original_domain", None) or model.domain
+var_dict = {var.name: var for var in orig_domain.attributes}
+
+job_options = list(var_dict["직역"].values) if "직역" in var_dict else ["근로자", "공무원", "지역"]
+age_options = list(var_dict["연령대"].values) if "연령대" in var_dict else [
+    "19세이하", "20~24세", "25~29세", "30~34세", "35~39세",
+    "40~44세", "45~49세", "50~54세", "55~59세", "60~64세",
+    "65~69세", "70~74세", "75~79세", "80~84세", "85세이상",
+]
+gender_options = list(var_dict["성별"].values) if "성별" in var_dict else ["남성", "여성"]
+
 # 사이드바 사용자 입력
 with st.sidebar:
     st.header("📋 검진자 정보 입력")
-    job_options = ["근로자", "공무원", "지역"]
-    age_options = [
-        "19세이하", "20~24세", "25~29세", "30~34세", "35~39세",
-        "40~44세", "45~49세", "50~54세", "55~59세", "60~64세",
-        "65~69세", "70~74세", "75~79세", "80~84세", "85세이상",
-    ]
-    gender_options = ["남성", "여성"]
-
     selected_job = st.selectbox("1. 직역 구분", job_options, index=0)
-    selected_age = st.selectbox("2. 연령대", age_options, index=5)
+    default_age_idx = age_options.index("40~44세") if "40~44세" in age_options else 0
+    selected_age = st.selectbox("2. 연령대", age_options, index=default_age_idx)
     selected_gender = st.radio("3. 성별", gender_options, horizontal=True)
 
     st.info("💡 선택 값을 변경하면 AI 모델이 실시간으로 추론 결과를 업데이트합니다.")
 
-# Orange3 모델 입력용 Table 생성 (수검인원 100명 기준 정규화)
-feature_domain = Domain(model.domain.attributes)
-orange_table = Table.from_numpy(
-    feature_domain,
-    X=np.array(
-        [
-            [
-                feature_domain["직역"].to_val(selected_job),
-                feature_domain["연령대"].to_val(selected_age),
-                feature_domain["성별"].to_val(selected_gender),
-                100.0,
-            ]
-        ]
-    ),
-)
+# 원본 도메인 순서에 맞춰 입력 데이터 생성 (수검인원 = 100명 기준 정규화)
+input_map = {
+    "직역": selected_job,
+    "연령대": selected_age,
+    "성별": selected_gender,
+    "수검인원": 100.0,
+}
+
+feature_domain = Domain(orig_domain.attributes)
+row_values = [input_map[attr.name] for attr in feature_domain.attributes]
+orange_table = Table.from_list(feature_domain, [row_values])
 
 # 실시간 추론 및 확률(%) 보정 (0~100% 범위 클리핑)
 raw_pred = float(model(orange_table)[0])
